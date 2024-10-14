@@ -162,7 +162,15 @@ fun UserPostsScreen(userId: Int, navController: NavHostController) {
     }
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        // Botón "Volver" al principio
+        Button(onClick = { navController.navigate("userList") }) {
+            Text(text = "Volver a la lista de usuarios")
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
         Text(text = "Posts de Usuario ID: $userId", style = MaterialTheme.typography.titleLarge)
+
         Spacer(modifier = Modifier.height(16.dp))
 
         LazyColumn {
@@ -170,14 +178,9 @@ fun UserPostsScreen(userId: Int, navController: NavHostController) {
                 PostItem(post)
             }
         }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Button(onClick = { navController.navigate("userList") }) {
-            Text(text = "Volver a la lista de usuarios")
-        }
     }
 }
+
 
 // Composable para un item de post
 @Composable
