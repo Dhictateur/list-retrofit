@@ -1,6 +1,7 @@
 package com.example.eac21 // Asegúrate de que coincide con tu paquete
 
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.clickable
@@ -11,6 +12,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.ViewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.*
 import retrofit2.Call
@@ -59,38 +61,67 @@ object RetrofitClient {
     }
 }
 
-// Función para obtener la lista de usuarios
-fun fetchUsers(onResult: (List<User>) -> Unit) {
-    RetrofitClient.instance.getUsers().enqueue(object : Callback<List<User>> {
-        override fun onResponse(call: Call<List<User>>, response: Response<List<User>>) {
-            if (response.isSuccessful) {
-                onResult(response.body() ?: emptyList())
-            } else {
-                // Manejar el error aquí
-            }
-        }
-
-        override fun onFailure(call: Call<List<User>>, t: Throwable) {
-            // Manejar el error aquí
-        }
-    })
+// Interfaz del Repositorio
+interface UserRepository {
+    fun getUsers(onResult: (List<User>) -> Unit)
+    fun getPostsByUserId(userId: Int, onResult: (List<Post>) -> Unit)
 }
 
-// Función para obtener los posts de un usuario específico
-fun fetchPostsByUserId(userId: Int, onResult: (List<Post>) -> Unit) {
-    RetrofitClient.instance.getPostsByUserId(userId).enqueue(object : Callback<List<Post>> {
-        override fun onResponse(call: Call<List<Post>>, response: Response<List<Post>>) {
-            if (response.isSuccessful) {
-                onResult(response.body() ?: emptyList())
-            } else {
+// Implementación del Repositorio
+// Implementación del Repositorio
+class UserRepositoryImpl : UserRepository {
+    private val apiService = RetrofitClient.instance
+
+    override fun getUsers(onResult: (List<User>) -> Unit) {
+        apiService.getUsers().enqueue(object : Callback<List<User>> {
+            override fun onResponse(call: Call<List<User>>, response: Response<List<User>>) {
+                if (response.isSuccessful) {
+                    onResult(response.body() ?: emptyList())
+                } else {
+                    // Manejar el error aquí
+                }
+            }
+
+            override fun onFailure(call: Call<List<User>>, t: Throwable) {
                 // Manejar el error aquí
             }
-        }
+        })
+    }
 
-        override fun onFailure(call: Call<List<Post>>, t: Throwable) {
-            // Manejar el error aquí
+    override fun getPostsByUserId(userId: Int, onResult: (List<Post>) -> Unit) {
+        apiService.getPostsByUserId(userId).enqueue(object : Callback<List<Post>> {
+            override fun onResponse(call: Call<List<Post>>, response: Response<List<Post>>) {
+                if (response.isSuccessful) {
+                    onResult(response.body() ?: emptyList())
+                } else {
+                    // Manejar el error aquí
+                }
+            }
+
+            override fun onFailure(call: Call<List<Post>>, t: Throwable) {
+                Log.e("API Error", "Error fetching posts: ${t.message}")
+                // Aquí puedes manejar el error, como mostrar un Toast
+            }
+        })
+    }
+}
+
+// ViewModel
+class UserViewModel(private val userRepository: UserRepository) : ViewModel() {
+    var users by mutableStateOf<List<User>>(emptyList())
+    var posts by mutableStateOf<List<Post>>(emptyList())
+
+    fun fetchUsers() {
+        userRepository.getUsers { fetchedUsers ->
+            users = fetchedUsers
         }
-    })
+    }
+
+    fun fetchPostsByUserId(userId: Int) {
+        userRepository.getPostsByUserId(userId) { fetchedPosts ->
+            posts = fetchedPosts
+        }
+    }
 }
 
 // Actividad principal
@@ -101,11 +132,14 @@ class MainActivity : ComponentActivity() {
             MaterialTheme {
                 // Configura la navegación
                 val navController = rememberNavController()
+                val userRepository = UserRepositoryImpl()
+                val userViewModel = UserViewModel(userRepository)
+
                 NavHost(navController = navController, startDestination = "userList") {
-                    composable("userList") { UserListScreen(navController) }
+                    composable("userList") { UserListScreen(userViewModel, navController) }
                     composable("userPosts/{userId}") { backStackEntry ->
                         val userId = backStackEntry.arguments?.getString("userId")?.toInt() ?: 0
-                        UserPostsScreen(userId, navController)
+                        UserPostsScreen(userId, userViewModel, navController)
                     }
                 }
             }
@@ -115,21 +149,15 @@ class MainActivity : ComponentActivity() {
 
 // Pantalla de lista de usuarios
 @Composable
-fun UserListScreen(navController: NavHostController) {
-    val users = remember { mutableStateListOf<User>() }
-
-    // Obtener usuarios
+fun UserListScreen(userViewModel: UserViewModel, navController: NavHostController) {
+    // Obtener usuarios al iniciar la pantalla
     LaunchedEffect(Unit) {
-        fetchUsers { fetchedUsers ->
-            users.clear()
-            users.addAll(fetchedUsers)
-        }
+        userViewModel.fetchUsers()
     }
 
     LazyColumn(modifier = Modifier.fillMaxSize()) {
-        items(users) { user ->
+        items(userViewModel.users) { user ->
             UserListItem(user) {
-                // Navegar a la pantalla de posts del usuario seleccionado
                 navController.navigate("userPosts/${user.id}")
             }
         }
@@ -150,19 +178,13 @@ fun UserListItem(user: User, onClick: () -> Unit) {
 
 // Pantalla de posts de un usuario
 @Composable
-fun UserPostsScreen(userId: Int, navController: NavHostController) {
-    val posts = remember { mutableStateListOf<Post>() }
-
-    // Obtener los posts del usuario
+fun UserPostsScreen(userId: Int, userViewModel: UserViewModel, navController: NavHostController) {
+    // Obtener los posts del usuario al iniciar la pantalla
     LaunchedEffect(userId) {
-        fetchPostsByUserId(userId) { fetchedPosts ->
-            posts.clear()
-            posts.addAll(fetchedPosts)
-        }
+        userViewModel.fetchPostsByUserId(userId)
     }
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        // Botón "Volver" al principio
         Button(onClick = { navController.navigate("userList") }) {
             Text(text = "Volver a la lista de usuarios")
         }
@@ -174,13 +196,12 @@ fun UserPostsScreen(userId: Int, navController: NavHostController) {
         Spacer(modifier = Modifier.height(16.dp))
 
         LazyColumn {
-            items(posts) { post ->
+            items(userViewModel.posts) { post ->
                 PostItem(post)
             }
         }
     }
 }
-
 
 // Composable para un item de post
 @Composable
